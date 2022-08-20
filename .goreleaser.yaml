@@ -1,0 +1,24 @@
+project_name: certforgot
+before:
+  hooks:
+    - make prereqs
+builds:
+  - main: ./cmd/certforgot
+    id: certforgot
+    binary: certforgot
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+archives:
+  - format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE

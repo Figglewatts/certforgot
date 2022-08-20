@@ -1,0 +1,36 @@
+acme:
+  server: https://acme-staging-v02.api.letsencrypt.org/directory
+  email: me@example.com
+
+state:
+  source: local/azureblob/postgres
+  config:
+    some: config
+    values: here
+    variable: based on type
+
+globalPolicy:
+  renewBefore: 30d
+
+validators:
+  - name: azure
+    dns01:
+      provider: azure
+  - name: http
+    http01:
+      port: 8080
+
+certs:
+  - metadata:
+      name: LSD Revamped
+      domains:
+        - '*.lsdrevamped.net'
+    source:
+      type: azurekeyvaultcertificate
+      location: https://kvlsdrevampednet.vault.azure.net/certificates/lsdrevampednet
+    validator: azure
+    installer:
+      type: azurekeyvaultcertificate
+      location: https://kvlsdrevampednet.vault.azure.net/certificates/lsdrevampednet
+    policy:
+      renewBefore: 15d
