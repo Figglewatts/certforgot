@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"io/ioutil"
 	"net/mail"
 	"os"
@@ -25,16 +26,63 @@ func existingState(t *testing.T) State {
 	}
 }
 
-func TestAzureKeyVaultSource(t *testing.T) {
-	mockSource := func() *AzureKeyVaultSource {
-		src, err := NewAzureKeyVaultSource(mocks.NewKeyVaultClient(t), nil)
+func TestAzureBlobSource(t *testing.T) {
+	mockSource := func(t *testing.T) (*AzureBlobSource, *mocks.BlobClient) {
+		client := mocks.NewBlobClient(t)
+		src, err := NewAzureBlobSource(client)
 		assert.Nil(t, err)
-		return &src
+		return &src, client
+	}
+
+	t.Run(
+		"Update", func(t *testing.T) {
+			src, client := mockSource(t)
+			ctx := context.Background()
+			state := existingState(t)
+
+			expectedContents, err := yaml.Marshal(state)
+			assert.Nil(t, err)
+			client.EXPECT().
+				Upload(ctx, expectedContents).
+				Return(nil)
+
+			err = src.Update(ctx, state)
+			assert.Nil(t, err)
+		},
+	)
+
+	t.Run(
+		"Get", func(t *testing.T) {
+			src, client := mockSource(t)
+			ctx := context.Background()
+			state := existingState(t)
+			marshaledState, err := yaml.Marshal(state)
+			assert.Nil(t, err)
+
+			client.EXPECT().
+				Download(ctx).
+				Return(marshaledState, nil)
+
+			result, err := src.Get(ctx)
+			assert.Nil(t, err)
+			assert.Equal(t, state, result)
+		},
+	)
+}
+
+func TestAzureKeyVaultSource(t *testing.T) {
+	mockSource := func(t *testing.T) (
+		*AzureKeyVaultSource, *mocks.KeyVaultClient,
+	) {
+		client := mocks.NewKeyVaultClient(t)
+		src, err := NewAzureKeyVaultSource(client, nil)
+		assert.Nil(t, err)
+		return &src, client
 	}
 
 	t.Run(
 		"NewAzureKeyVaultSource", func(t *testing.T) {
-			src := mockSource()
+			src, _ := mockSource(t)
 
 			assert.Equal(t, DefaultEmailSecretName, src.config.EmailSecretName)
 			assert.Equal(t, DefaultKeyName, src.config.KeyName)
@@ -43,11 +91,9 @@ func TestAzureKeyVaultSource(t *testing.T) {
 
 	t.Run(
 		"Update", func(t *testing.T) {
-			client := mocks.NewKeyVaultClient(t)
+			src, client := mockSource(t)
 			state := existingState(t)
 			ctx := context.Background()
-			src, err := NewAzureKeyVaultSource(client, nil)
-			assert.Nil(t, err)
 
 			client.EXPECT().
 				SetSecret(
@@ -58,22 +104,90 @@ func TestAzureKeyVaultSource(t *testing.T) {
 				ImportKey(ctx, DefaultKeyName, state.UserPrivateKey.Key).
 				Return(nil)
 
-			err = src.Update(ctx, state)
+			err := src.Update(ctx, state)
 			assert.Nil(t, err)
+		},
+	)
+
+	t.Run(
+		"Get", func(t *testing.T) {
+			src, client := mockSource(t)
+			state := existingState(t)
+			ctx := context.Background()
+
+			expectedEmail := state.UserEmail.String()
+			client.EXPECT().
+				GetSecret(ctx, DefaultEmailSecretName, "").
+				Return(&expectedEmail, nil)
+			client.EXPECT().
+				GetKey(ctx, DefaultKeyName, "").
+				Return(state.UserPrivateKey.Key, nil)
+
+			result, err := src.Get(ctx)
+
+			assert.Nil(t, err)
+			assert.Equal(t, state, result)
+		},
+	)
+
+	t.Run(
+		"Exists", func(t *testing.T) {
+			expectedSecret := "secret"
+			expectedKey, err := jwk.New([]byte("test"))
+			if err != nil {
+				t.Fatalf("unexpected error setting up test: %v", err)
+			}
+
+			tests := []struct {
+				name            string
+				getKeyResult    jwk.Key
+				getSecretResult *string
+				expected        bool
+			}{
+				{"no-secret", nil, nil, false},
+				{"no-key", nil, &expectedSecret, false},
+				{"exists", expectedKey, &expectedSecret, true},
+			}
+
+			for _, test := range tests {
+				testName := fmt.Sprintf("Exists_%s", test.name)
+				t.Run(
+					testName, func(t *testing.T) {
+						src, client := mockSource(t)
+						ctx := context.Background()
+
+						client.EXPECT().
+							GetSecret(ctx, DefaultEmailSecretName, "").
+							Return(test.getSecretResult, nil)
+						if test.getSecretResult != nil {
+							client.EXPECT().
+								GetKey(ctx, DefaultKeyName, "").
+								Return(test.getKeyResult, nil)
+						}
+
+						result, err := src.Exists(ctx)
+
+						assert.Nil(t, err)
+						assert.Equal(t, test.expected, result)
+					},
+				)
+			}
 		},
 	)
 }
 
-func TestPostgresSource(t *testing.T) {
-	mockDB := func() (*sql.DB, sqlmock.Sqlmock) {
+func TestSqlSource(t *testing.T) {
+	mockDB := func(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 		db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
 		mock.ExpectPing()
 		assert.Nil(t, err)
 		return db, mock
 	}
 
-	sourceFromDB := func(db *sql.DB, mock sqlmock.Sqlmock) PostgresSource {
-		source, err := NewPostgresSource(
+	sourceFromDB := func(
+		t *testing.T, db *sql.DB, mock sqlmock.Sqlmock,
+	) SqlSource {
+		source, err := NewSqlSource(
 			context.Background(), "sqlmock", db,
 		)
 		assert.Nil(t, err)
@@ -93,14 +207,14 @@ func TestPostgresSource(t *testing.T) {
 	}
 
 	t.Run(
-		"NewPostgresSource", func(t *testing.T) {
-			db, mock := mockDB()
+		"NewSqlSource", func(t *testing.T) {
+			db, mock := mockDB(t)
 
-			_, err := NewPostgresSource(
+			_, err := NewSqlSource(
 				context.Background(), "sqlmock", db,
 			)
 			assert.Nil(t, err)
-			assert.Implements(t, (*Source)(nil), new(PostgresSource))
+			assert.Implements(t, (*Source)(nil), new(SqlSource))
 
 			err = mock.ExpectationsWereMet()
 			assert.Nil(t, err)
@@ -109,10 +223,10 @@ func TestPostgresSource(t *testing.T) {
 
 	t.Run(
 		"Update (new)", func(t *testing.T) {
-			db, mock := mockDB()
+			db, mock := mockDB(t)
 			defer db.Close()
 
-			source := sourceFromDB(db, mock)
+			source := sourceFromDB(t, db, mock)
 
 			mock = mockExists(mock, false)
 
@@ -134,10 +248,10 @@ func TestPostgresSource(t *testing.T) {
 
 	t.Run(
 		"Update (existing)", func(t *testing.T) {
-			db, mock := mockDB()
+			db, mock := mockDB(t)
 			defer db.Close()
 
-			source := sourceFromDB(db, mock)
+			source := sourceFromDB(t, db, mock)
 
 			mock = mockExists(mock, true)
 
@@ -160,7 +274,7 @@ func TestPostgresSource(t *testing.T) {
 
 	t.Run(
 		"Get", func(t *testing.T) {
-			db, mock := mockDB()
+			db, mock := mockDB(t)
 			defer db.Close()
 
 			rowResult := sqlmock.NewRows(
@@ -175,7 +289,7 @@ func TestPostgresSource(t *testing.T) {
 				WillReturnRows(rowResult).RowsWillBeClosed()
 
 			expected := existingState(t)
-			source := sourceFromDB(db, mock)
+			source := sourceFromDB(t, db, mock)
 
 			state, err := source.Get(context.Background())
 			assert.Nil(t, err)
@@ -188,12 +302,12 @@ func TestPostgresSource(t *testing.T) {
 
 	t.Run(
 		"Exists", func(t *testing.T) {
-			db, mock := mockDB()
+			db, mock := mockDB(t)
 			defer db.Close()
 
 			mock = mockExists(mock, true)
 
-			source := sourceFromDB(db, mock)
+			source := sourceFromDB(t, db, mock)
 			result, err := source.Exists(context.Background())
 			assert.Nil(t, err)
 			assert.Equal(t, true, result)
@@ -205,12 +319,12 @@ func TestPostgresSource(t *testing.T) {
 
 	t.Run(
 		"Not exists", func(t *testing.T) {
-			db, mock := mockDB()
+			db, mock := mockDB(t)
 			defer db.Close()
 
 			mock = mockExists(mock, false)
 
-			source := sourceFromDB(db, mock)
+			source := sourceFromDB(t, db, mock)
 			result, err := source.Exists(context.Background())
 			assert.Nil(t, err)
 			assert.Equal(t, false, result)

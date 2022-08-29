@@ -9,28 +9,39 @@ import (
 )
 
 type HttpsSource struct {
-	url *url.URL
+	url    *url.URL
+	client *http.Client
 }
 
-func NewHttpsSource(url *url.URL) (HttpsSource, error) {
+func NewHttpsSource(url *url.URL, client *http.Client) (HttpsSource, error) {
 	if url.Scheme != "https" {
-		return HttpsSource{}, fmt.Errorf("invalid url '%s', scheme must be https", url)
+		return HttpsSource{}, fmt.Errorf(
+			"invalid url '%s', scheme must be https", url,
+		)
 	}
 
-	return HttpsSource{url}, nil
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	return HttpsSource{url, client}, nil
 }
 
 func (source HttpsSource) Get(ctx context.Context) (*x509.Certificate, error) {
-	return getCertFromUrl(ctx, source.url)
+	return source.getCertFromUrl(ctx, source.url)
 }
 
-func getCertFromUrl(ctx context.Context, url *url.URL) (cert *x509.Certificate, err error) {
+func (source HttpsSource) getCertFromUrl(ctx context.Context, url *url.URL) (
+	cert *x509.Certificate, err error,
+) {
 	req, err := http.NewRequestWithContext(ctx, "HEAD", url.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create request for '%s': %v", url, err)
+		return nil, fmt.Errorf(
+			"unable to create request for '%s': %v", url, err,
+		)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := source.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("unable to perform HEAD for '%s': %v", url, err)
 	}

@@ -9,7 +9,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
-type PostgresSource struct {
+type SqlSource struct {
 	driver *sqlx.DB
 }
 
@@ -18,23 +18,23 @@ type stateRow struct {
 	ID uint64
 }
 
-func NewPostgresSource(
+func NewSqlSource(
 	ctx context.Context, driver string, db *sql.DB,
-) (PostgresSource, error) {
+) (SqlSource, error) {
 	sqlxDriver := sqlx.NewDb(db, driver)
 
 	err := sqlxDriver.PingContext(ctx)
 	if err != nil {
-		return PostgresSource{}, err
+		return SqlSource{}, err
 	}
 
-	return PostgresSource{sqlxDriver}, nil
+	return SqlSource{sqlxDriver}, nil
 }
 
 const InsertQuery = "INSERT INTO certforgot.state VALUES (:id, :useremail, :userprivatekey);"
 const UpdateQuery = "UPDATE certforgot.state SET useremail = :useremail, userprivatekey = :userprivatekey WHERE id = :id"
 
-func (p PostgresSource) Update(ctx context.Context, state State) error {
+func (p SqlSource) Update(ctx context.Context, state State) error {
 	stateRow := stateRow{State: state, ID: 1}
 
 	exists, err := p.Exists(ctx)
@@ -58,7 +58,7 @@ func (p PostgresSource) Update(ctx context.Context, state State) error {
 
 const GetQuery = "SELECT * FROM certforgot.state LIMIT 1"
 
-func (p PostgresSource) Get(ctx context.Context) (State, error) {
+func (p SqlSource) Get(ctx context.Context) (State, error) {
 	state := stateRow{ID: 1}
 	err := p.driver.GetContext(ctx, &state, GetQuery)
 	if err != nil {
@@ -69,7 +69,7 @@ func (p PostgresSource) Get(ctx context.Context) (State, error) {
 
 const ExistsQuery = "SELECT COUNT(*) FROM certforgot.state"
 
-func (p PostgresSource) Exists(ctx context.Context) (bool, error) {
+func (p SqlSource) Exists(ctx context.Context) (bool, error) {
 	var count int
 	err := p.driver.GetContext(ctx, &count, ExistsQuery)
 	if err != nil {

@@ -25,12 +25,16 @@ func NewLocalSource(filePath string, sourceType FileType) (LocalSource, error) {
 func (source LocalSource) Get(ctx context.Context) (*x509.Certificate, error) {
 	certContents, err := getCertContents(source)
 	if err != nil {
-		return nil, fmt.Errorf("unable to load certificate at '%s': %v", source.filePath, err)
+		return nil, fmt.Errorf(
+			"unable to load certificate at '%s': %v", source.filePath, err,
+		)
 	}
 
 	cert, err := x509.ParseCertificate(certContents)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse certificate at '%s': %v", source.filePath, err)
+		return nil, fmt.Errorf(
+			"unable to parse certificate at '%s': %v", source.filePath, err,
+		)
 	}
 
 	return cert, nil
@@ -39,7 +43,9 @@ func (source LocalSource) Get(ctx context.Context) (*x509.Certificate, error) {
 func getCertContents(source LocalSource) ([]byte, error) {
 	fileContents, err := os.ReadFile(source.filePath)
 	if err != nil {
-		return nil, fmt.Errorf("unable to read file at '%s': %v", source.filePath, err)
+		return nil, fmt.Errorf(
+			"unable to read file at '%s': %v", source.filePath, err,
+		)
 	}
 
 	switch source.sourceType {
@@ -47,13 +53,16 @@ func getCertContents(source LocalSource) ([]byte, error) {
 	case FileTypeDer:
 		return fileContents, nil
 	case FileTypePem:
-		rest := fileContents
-		for block, rest := pem.Decode(rest); block != nil; {
-			_ = rest // we need to keep rest
-			if block.Type != "CERTIFICATE" {
-				continue
+		decodeBuf := fileContents
+		for {
+			block, rest := pem.Decode(decodeBuf)
+			if block == nil {
+				break
 			}
-			return block.Bytes, nil
+			if block.Type == "CERTIFICATE" {
+				return block.Bytes, nil
+			}
+			decodeBuf = rest
 		}
 
 		// if we get here then a cert wasn't found

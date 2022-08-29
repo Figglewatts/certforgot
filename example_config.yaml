@@ -3,11 +3,17 @@ acme:
   email: me@example.com
 
 state:
-  source: local/azureblob/postgres
-  config:
-    some: config
-    values: here
-    variable: based on type
+  local:
+    directory: /path/to/state
+  sql:
+    driver: postgres
+    connectionString: string
+  azureBlob:
+    url: bloburl
+  azureKeyVault:
+    url: vaulturl
+    keyName: keyname
+    emailSecretName: secretname
 
 globalPolicy:
   renewBefore: 30d

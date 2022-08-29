@@ -8,26 +8,13 @@ import (
 )
 
 type AzureBlobSource struct {
-	config *AzureBlobSourceConfig
 	client azure.BlobClient
 }
 
-const (
-	DefaultStateBlobName = "certforgot_state.yaml"
-)
-
-type AzureBlobSourceConfig struct {
-	BlobName string
-}
-
 func NewAzureBlobSource(
-	client azure.BlobClient, config *AzureBlobSourceConfig,
+	client azure.BlobClient,
 ) (AzureBlobSource, error) {
-	if config == nil {
-		config = &AzureBlobSourceConfig{DefaultStateBlobName}
-	}
-
-	return AzureBlobSource{config, client}, nil
+	return AzureBlobSource{client}, nil
 }
 
 func (source AzureBlobSource) Update(ctx context.Context, state State) error {

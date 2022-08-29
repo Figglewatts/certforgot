@@ -1,58 +1,39 @@
 package main
 
 import (
-	"context"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"math/big"
-	"net/url"
-	"time"
+	"fmt"
 
-	"github.com/figglewatts/certforgot/pkg/installer"
+	"github.com/go-playground/validator"
 )
 
-func UrlMustParse(urlString string) *url.URL {
-	parsed, err := url.Parse(urlString)
-	if err != nil {
-		panic(err)
-	}
-	return parsed
+type Test struct {
+	Email  string `validate:"required,email"`
+	Server string `validate:"required,url"`
 }
 
+var validate *validator.Validate
+
 func main() {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		panic(err)
+	validate = validator.New()
+
+	valid := Test{
+		Email:  "sam@test.org",
+		Server: "https://www.test.org/",
+	}
+	invalid := Test{
+		Email:  "adasdasd",
+		Server: "asddasd",
 	}
 
-	tmpl := x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{Organization: []string{"Test"}},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(time.Hour * 24 * 30),
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-	}
-	certRaw, err := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, &key.PublicKey, key)
+	err := validate.Struct(valid)
 	if err != nil {
-		panic(err)
-	}
-	cert, err := x509.ParseCertificate(certRaw)
-	if err != nil {
-		panic(err)
+		fmt.Printf("%v\n", err)
+	} else {
+		fmt.Println("Valid!")
 	}
 
-	kvInstaller, err := installer.NewAzureKeyVaultInstaller(
-		UrlMustParse("https://kvlsdrevampednet.vault.azure.net/"), "testinggo")
+	err = validate.Struct(invalid)
 	if err != nil {
-		panic(err)
-	}
-
-	err = kvInstaller.Install(context.Background(), cert, key)
-	if err != nil {
-		panic(err)
+		fmt.Printf("%v\n", err)
 	}
 }
